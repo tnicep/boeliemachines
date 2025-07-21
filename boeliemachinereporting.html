@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mponeng Machine Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui;margin:0;background:#f5f5f5}
+    header{background:#004d40;color:#fff;padding:.75rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+    header label{font-size:.9rem}
+    header select[multiple]{width:140px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;padding:1rem}
+    .card{background:#fff;border:1px solid #ccc;border-radius:4px;padding:.75rem}
+    .card h3{margin:.2rem 0 .5rem}
+    .status{padding:.25rem .5rem;border-radius:3px;color:#fff;font-size:.8rem}
+    .status.active{background:#2e7d32}
+    .status.down,.status.maintenance{background:#c62828}
+    .status.idle{background:#ff9800}
+    form{margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap}
+    select,button{padding:.4rem .6rem}
+    button{background:#004d40;color:#fff;border:none;cursor:pointer}
+    button:hover{background:#00695c}
+    #reportArea{margin:1rem}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:.5rem;border:1px solid #ccc}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mponeng Machine Dashboard</h1>
+
+    <!-- Filter dropdowns -->
+    <label>Operator
+      <select id="filterOperator" multiple size="4"></select>
+    </label>
+    <label>Area
+      <select id="filterArea" multiple size="4"></select>
+    </label>
+
+    <button onclick="toggleReport()">Weekly Report</button>
+    <button onclick="printDailyReport()">Print Daily Report</button>
+  </header>
+
+  <!-- Machine Grid -->
+  <div id="machineGrid" class="grid"></div>
+
+  <!-- Weekly Report -->
+  <div id="reportArea" class="hidden">
+    <button onclick="toggleReport()">Close Report</button>
+    <h2>Weekly Report (last 7 days)</h2>
+    <table id="reportTable"></table>
+  </div>
+
+  <script>
+    /* ---------- CONFIG ---------- */
+    const areas = ["Mponeng R&D","Mponeng T&F","Mponeng Plant","Mponeng","Reclamation",
+                   "Deposition-Dadada","Deposition-Paalwall","Deposition-LongBar"];
+    const statuses = ["active","down","maintenance","idle"];
+    const operators = ["Nomsa","Siya","Kagiso","Xolani","Thato","Mguni","Solomon",
+                       "Isaac","Tumi","Samuel","Skhumbuzo","Lufefe","Piet",
+                       "Vincent","Thabisanang","Shedirex"];
+
+    /* ---------- ALL 16 MACHINES ---------- */
+    const seed = [
+      {id:"ExC Doosan 02",  area:"Mponeng R&D",        operator:"Nomsa",       status:"active"},
+      {id:"ExC Doosan 03",  area:"Mponeng T&F",        operator:"Siya",        status:"active"},
+      {id:"FEL JCB",        area:"Mponeng T&F",        operator:"Kagiso",      status:"active"},
+      {id:"FEL 3D",         area:"Mponeng Plant",      operator:"Xolani",      status:"down"},
+      {id:"TLB CAT",        area:"Mponeng Plant",      operator:"Thato",       status:"maintenance"},
+      {id:"Tipper Hino",    area:"Mponeng R&D",        operator:"Mguni",       status:"active"},
+      {id:"UD440",          area:"Mponeng",            operator:"Solomon",     status:"idle"},
+      {id:"BT01",           area:"Mponeng T&F",        operator:"Isaac",       status:"active"},
+      {id:"FEL/FT 02",      area:"Reclamation",        operator:"Tumi",        status:"active"},
+      {id:"B1 V0X0",        area:"Deposition-Dadada",  operator:"Samuel",      status:"active"},
+      {id:"Ex CAT 01",      area:"Deposition-Paalwall",operator:"Skhumbuzo",   status:"active"},
+      {id:"Ex CAT 02",      area:"Deposition-LongBar", operator:"Lufefe",      status:"active"},
+      {id:"FEL 03",         area:"Reclamation",        operator:"Piet",        status:"active"},
+      {id:"TLB CASE",       area:"Reclamation",        operator:"Vincent",     status:"active"},
+      {id:"Tipper Fuso 09", area:"Reclamation",        operator:"Thabisanang", status:"active"},
+      {id:"Ex BTE WT 03",   area:"Reclamation",        operator:"Shedirex",    status:"active"}
+    ];
+
+    /* ---------- DATA LAYER ---------- */
+    function loadMachines() {
+      const raw = localStorage.getItem("machines");
+      if (raw) return JSON.parse(raw);
+      localStorage.setItem("machines", JSON.stringify(seed));
+      return seed;
+    }
+    function saveMachines(list){ localStorage.setItem("machines", JSON.stringify(list)); }
+
+    /* ---------- POPULATE FILTER DROPDOWNS ---------- */
+    const opSel  = document.getElementById("filterOperator");
+    const areaSel= document.getElementById("filterArea");
+    operators.forEach(op => opSel.append(new Option(op,op)));
+    areas.forEach(a => areaSel.append(new Option(a,a)));
+
+    /* ---------- RENDER & FILTER ---------- */
+    function renderGrid(){
+      const container = document.getElementById("machineGrid");
+      container.innerHTML = "";
+      const machines = loadMachines();
+      const chosenOps  = [...opSel.selectedOptions].map(o=>o.value);
+      const chosenAreas= [...areaSel.selectedOptions].map(o=>o.value);
+      machines
+        .filter(m =>
+          (chosenOps.length   === 0 || chosenOps.includes(m.operator)) &&
+          (chosenAreas.length === 0 || chosenAreas.includes(m.area))
+        )
+        .forEach(m=>{
+          const card = document.createElement("div");
+          card.className="card";
+          card.innerHTML=`
+            <h3>${m.id}</h3>
+            <div><strong>Area:</strong> ${m.area}</div>
+            <div><strong>Operator:</strong> ${m.operator}</div>
+            <div class="status ${m.status}">${m.status.toUpperCase()}</div>
+            <form onsubmit="updateStatus(event,'${m.id}')">
+              <select name="status">${statuses.map(s=>`<option ${s===m.status?"selected":""}>${s}</option>`)}</select>
+              <select name="operator">${operators.map(o=>`<option ${o===m.operator?"selected":""}>${o}</option>`)}</select>
+              <button>Save</button>
+            </form>`;
+          container.appendChild(card);
+        });
+    }
+
+    /* ---------- CRUD ---------- */
+    function updateStatus(e,id){
+      e.preventDefault();
+      const machines = loadMachines();
+      const m = machines.find(m=>m.id===id);
+      m.status = e.target.status.value;
+      m.operator = e.target.operator.value;
+      const log = JSON.parse(localStorage.getItem("log")||"[]");
+      log.push({machine:id,status:m.status,time:Date.now()});
+      localStorage.setItem("log", JSON.stringify(log));
+      saveMachines(machines);
+      renderGrid();
+    }
+
+    /* ---------- REPORTS ---------- */
+    function toggleReport(){
+      const r = document.getElementById("reportArea");
+      r.classList.toggle("hidden");
+      if(!r.classList.contains("hidden")) buildReport();
+    }
+    function buildReport(){
+      const log = JSON.parse(localStorage.getItem("log")||"[]");
+      const weekAgo = Date.now() - 7*24*60*60*1000;
+      const weekly = log.filter(entry=>entry.time > weekAgo);
+      const summary = {};
+      weekly.forEach(e=>{
+        summary[e.machine] = summary[e.machine] || {active:0,down:0,maintenance:0,idle:0};
+        summary[e.machine][e.status]++;
+      });
+      const tbody = Object.entries(summary).map(([machine,counts])=>
+        `<tr><td>${machine}</td>${statuses.map(s=>`<td>${counts[s]||0}</td>`).join("")}</tr>`).join("");
+      document.getElementById("reportTable").innerHTML =
+        `<thead><tr><th>Machine</th>${statuses.map(s=>`<th>${s}</th>`).join("")}</tr></thead><tbody>${tbody}</tbody>`;
+    }
+
+    /* ---------- PRINT DAILY REPORT ---------- */
+    function printDailyReport(){
+      const machines = loadMachines();
+      const now = new Date();
+      const stamp = now.toLocaleDateString() + '  ' + now.toLocaleTimeString();
+
+      let html = `
+        <html>
+          <head>
+            <title>Daily Report ${stamp}</title>
+            <style>
+              body{font-family:system-ui;margin:1cm}
+              h1{margin:0 0 .5cm}
+              table{border-collapse:collapse;width:100%}
+              th,td{border:1px solid #000;padding:4px 6px;text-align:left}
+            </style>
+          </head>
+          <body>
+            <h1>Mponeng Daily Report</h1>
+            <p><strong>Generated:</strong> ${stamp}</p>
+            <table>
+              <thead><tr><th>Machine ID</th><th>Area</th><th>Operator</th><th>Status</th></tr></thead>
+              <tbody>
+      `;
+
+      machines.forEach(m=>{
+        html += `<tr><td>${m.id}</td><td>${m.area}</td><td>${m.operator}</td><td>${m.status.toUpperCase()}</td></tr>`;
+      });
+
+      html += `</tbody></table></body></html>`;
+
+      const win = window.open('', '_blank', 'width=800,height=600');
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      win.print();
+      win.close();
+    }
+
+    /* ---------- INIT ---------- */
+    [opSel, areaSel].forEach(sel=>sel.addEventListener('change', renderGrid));
+    renderGrid();
+  </script>
+</body>
+</html>
